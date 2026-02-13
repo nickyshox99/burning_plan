@@ -8,11 +8,11 @@ export default function Navigation() {
 
   const menuItems = [
     { href: '/', label: 'Dashboard' },
-    { href: '/zones', label: 'Manage Zones' },
-    { href: '/weather-forecast', label: 'Weather Forecast' },
-    { href: '/daily-burn-limits', label: 'Daily Burn Limits' },
-    { href: '/teams', label: 'Manage Teams' },
-    { href: '/burn-requests', label: 'Burn Requests' },
+    { href: '/zones', label: 'Zones' },
+    { href: '/weather-forecast', label: 'Weather' },
+    { href: '/daily-burn-limits', label: 'Burn Limits' },
+    { href: '/teams', label: 'Teams' },
+    { href: '/burn-requests', label: 'Burn Points' },
     { href: '/optimize', label: 'Plan(MIP)' },
     { href: '/optimize-genetic', label: 'Plan(Genetic)' },
   ];

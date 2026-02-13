@@ -158,6 +158,23 @@ export default function OptimizeGeneticPage() {
     return `วัน${dayName}ที่ ${day} ${month} ${year}`;
   };
 
+  // Color palette for different dates (same as map)
+  const getDateColor = (date: string): string => {
+    if (!result) return '#007bff';
+    const colors = [
+      '#007bff', // Blue
+      '#28a745', // Green
+      '#ffc107', // Yellow
+      '#dc3545', // Red
+      '#6f42c1', // Purple
+      '#fd7e14', // Orange
+      '#20c997', // Teal
+      '#e83e8c', // Pink
+    ];
+    const dateIndex = result.plan.findIndex((p) => p.date === date);
+    return colors[dateIndex % colors.length] || '#007bff';
+  };
+
   // Get previous date with data
   const getPreviousDate = (): string | null => {
     if (!result || !mapDate) return null;
@@ -426,15 +443,17 @@ export default function OptimizeGeneticPage() {
             </div>
           </div>
 
-          {result.plan.map((dayPlan, idx) => (
+          {result.plan.map((dayPlan, idx) => {
+            const dateColor = getDateColor(dayPlan.date);
+            return (
             <div
               key={dayPlan.date}
               style={{
                 marginBottom: '20px',
                 padding: '15px',
-                backgroundColor: '#f8f9fa',
+                backgroundColor: dateColor,
                 borderRadius: '6px',
-                border: '1px solid #dee2e6',
+                border: `2px solid ${dateColor}`,
               }}
             >
               <div style={{
@@ -443,13 +462,13 @@ export default function OptimizeGeneticPage() {
                 alignItems: 'center',
                 marginBottom: '15px',
                 paddingBottom: '10px',
-                borderBottom: '2px solid #dee2e6',
+                borderBottom: '2px solid rgba(255, 255, 255, 0.3)',
               }}>
                 <div>
-                  <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#333', marginBottom: '5px' }}>
+                  <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#fff', marginBottom: '5px' }}>
                     {formatThaiDate(dayPlan.date)}
                   </h3>
-                  <div style={{ fontSize: '14px', color: '#666' }}>
+                  <div style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.9)' }}>
                     พื้นที่รวม: <strong>{dayPlan.assignments.reduce((sum, a) => sum + a.area_rai, 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> ไร่ | 
                     คำขอ: <strong>{dayPlan.assignments.length}</strong> รายการ | 
                     ทีม: <strong>{new Set(dayPlan.assignments.map(a => a.team_id)).size}</strong> ทีม
@@ -463,9 +482,9 @@ export default function OptimizeGeneticPage() {
                     key={`${assignment.request_id}-${aIdx}`}
                     style={{
                       padding: '12px',
-                      backgroundColor: '#fff',
+                      backgroundColor: 'rgba(255, 255, 255, 0.95)',
                       borderRadius: '4px',
-                      border: '1px solid #dee2e6',
+                      border: `1px solid ${dateColor}`,
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
@@ -485,7 +504,8 @@ export default function OptimizeGeneticPage() {
                 ))}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
