@@ -8,13 +8,13 @@ export default function Navigation() {
 
   const menuItems = [
     { href: '/', label: 'Dashboard' },
-    { href: '/zones', label: 'จัดการเขตพื้นที่' },
-    { href: '/weather-forecast', label: 'พยากรณ์อากาศ' },
-    { href: '/daily-burn-limits', label: 'ข้อจำกัดการเผารายวัน' },
-    { href: '/teams', label: 'จัดการทีม' },
-    { href: '/burn-requests', label: 'พื้นที่ต้องการเผา' },
-    { href: '/optimize', label: 'Optimize แผน(MIP)' },
-    { href: '/optimize-genetic', label: 'Optimize แผน(Genetic)' },
+    { href: '/zones', label: 'Manage Zones' },
+    { href: '/weather-forecast', label: 'Weather Forecast' },
+    { href: '/daily-burn-limits', label: 'Daily Burn Limits' },
+    { href: '/teams', label: 'Manage Teams' },
+    { href: '/burn-requests', label: 'Burn Requests' },
+    { href: '/optimize', label: 'Plan(MIP)' },
+    { href: '/optimize-genetic', label: 'Plan(Genetic)' },
   ];
 
   return (
