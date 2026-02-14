@@ -259,6 +259,13 @@ export async function POST(request: NextRequest) {
     const CROSSOVER_RATE = 0.8;
     const TOURNAMENT_SIZE = 3;
 
+    // Fitness: Score - Penalty. Penalty must dominate so invalid plans never beat valid ones.
+    const PENALTY_PER_VIOLATION = 1e6;
+    const W_AREA = 1.0;
+    const W_DISTRIBUTION = 0.0;
+    const W_PRIORITY = 0.0;
+    const W_UTILIZATION = 0.0;
+
     // Helper function to check if assignment is valid
     const isValidAssignment = (
       req: any,
@@ -363,21 +370,98 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Calculate fitness
-      const fitness = assignments.reduce((sum, a) => {
-        const req = validRequests.find((r: any) => r.id === a.request_id);
-        return sum + (parseFloat(String(req?.area_rai || 0)) || 0);
-      }, 0);
-
+      const fitness = calculateFitness(assignments);
       return { assignments, fitness };
     };
 
-    // Calculate fitness for a solution
+    /**
+     * Fitness = Score - Penalty.
+     * Invalid plans must never receive higher fitness than valid plans,
+     * so penalty values dominate score.
+     */
     const calculateFitness = (assignments: Assignment[]): number => {
-      return assignments.reduce((sum, a) => {
+      let violations = 0;
+      const assignedRequestIds = new Set<number>();
+
+      // --- HARD CONSTRAINT CHECKS (each violation adds large penalty) ---
+      for (const a of assignments) {
+        if (assignedRequestIds.has(a.request_id)) {
+          violations += 1; // duplicate request
+          continue;
+        }
+        assignedRequestIds.add(a.request_id);
+
         const req = validRequests.find((r: any) => r.id === a.request_id);
-        return sum + (parseFloat(String(req?.area_rai || 0)) || 0);
-      }, 0);
+        if (!req) {
+          violations += 1;
+          continue;
+        }
+
+        const date = normalizeDate(a.date);
+        const forecastIds = requestWeatherMap.get(`${req.id}-${date}`) || [];
+        if (forecastIds.length === 0) violations += 1; // non-burnable day
+
+        const availableOnDate = teamsByDate.get(date) || [];
+        const teamAvailable = availableOnDate.some((t: any) => t.team_id === a.team_id);
+        if (!teamAvailable) violations += 1; // team not available
+      }
+
+      // Daily limit and one-team-one-zone-per-day: simulate by date
+      const areaUsedByLimit = new Map<number, number>();
+      const teamZoneByDate = new Map<string, number>();
+      for (const a of assignments) {
+        const req = validRequests.find((r: any) => r.id === a.request_id);
+        if (!req) continue;
+        const date = normalizeDate(a.date);
+        const reqArea = parseFloat(String(req?.area_rai || 0)) || 0;
+        const limit = dailyLimits.find((l: any) => l.id === a.limit_id);
+        if (limit) {
+          const used = areaUsedByLimit.get(a.limit_id) || 0;
+          const maxRai = parseFloat(String(limit.max_area_rai || 0)) || 0;
+          if (used + reqArea > maxRai) violations += 1;
+          areaUsedByLimit.set(a.limit_id, used + reqArea);
+        }
+        const teamKey = `${date}-${a.team_id}`;
+        const existingZone = teamZoneByDate.get(teamKey);
+        if (existingZone !== undefined && existingZone !== a.zone_id) violations += 1; // team two zones same day
+        teamZoneByDate.set(teamKey, a.zone_id);
+      }
+
+      const penalty = violations * PENALTY_PER_VIOLATION;
+
+      // --- SCORE COMPONENTS (weighted) ---
+      let areaTotal = 0;
+      const zonesUsed = new Set<number>();
+      let prioritySum = 0;
+      const teamDaysUsed = new Set<string>();
+
+      for (const a of assignments) {
+        const req = validRequests.find((r: any) => r.id === a.request_id);
+        if (!req) continue;
+        const area = parseFloat(String(req?.area_rai || 0)) || 0;
+        areaTotal += area;
+        zonesUsed.add(a.zone_id);
+        prioritySum += 1; // no priority column; treat each assigned request as weight 1
+        teamDaysUsed.add(`${normalizeDate(a.date)}-${a.team_id}`);
+      }
+
+      const burnedAreaScore = areaTotal * W_AREA;
+
+      const totalZones = zones.length || 1;
+      const distributionScore = (zonesUsed.size / totalZones) * W_DISTRIBUTION * 100;
+
+      const priorityScore = prioritySum * W_PRIORITY;
+
+      let availableTeamDays = 0;
+      for (const date of dates) {
+        availableTeamDays += (teamsByDate.get(date) || []).length;
+      }
+      const utilizationScore = availableTeamDays > 0
+        ? (teamDaysUsed.size / availableTeamDays) * W_UTILIZATION * 100
+        : 0;
+
+      const score = burnedAreaScore + distributionScore + priorityScore + utilizationScore;
+      return score - penalty;
     };
 
     // Tournament selection
@@ -400,12 +484,14 @@ export async function POST(request: NextRequest) {
       const childAssignments: Assignment[] = [];
       const areaUsedByLimit = new Map<number, number>();
       const teamZoneByDate = new Map<string, number>();
+      const assignedRequestIds = new Set<number>();
 
-      // Combine assignments from both parents
+      // Combine assignments from both parents (same request can appear in both)
       const allAssignments = [...parent1.assignments, ...parent2.assignments];
       const shuffled = allAssignments.sort(() => Math.random() - 0.5);
 
       for (const assignment of shuffled) {
+        if (assignedRequestIds.has(assignment.request_id)) continue;
         const req = validRequests.find((r: any) => r.id === assignment.request_id);
         if (!req) continue;
 
@@ -417,6 +503,7 @@ export async function POST(request: NextRequest) {
           areaUsedByLimit, teamZoneByDate, dateLimits, limitIds
         )) {
           childAssignments.push(assignment);
+          assignedRequestIds.add(assignment.request_id);
 
           // Update tracking
           const teamKey = `${assignment.date}-${assignment.team_id}`;
@@ -579,9 +666,15 @@ export async function POST(request: NextRequest) {
       .filter(date => assignmentsByDate.has(date))
       .map(date => {
         const dayAssignments = assignmentsByDate.get(date)!;
+        const seenRequestIds = new Set<number>();
+        const uniqueDayAssignments = dayAssignments.filter(a => {
+          if (seenRequestIds.has(a.request_id)) return false;
+          seenRequestIds.add(a.request_id);
+          return true;
+        });
         return {
           date,
-          assignments: dayAssignments.map(a => {
+          assignments: uniqueDayAssignments.map(a => {
             const req = validRequests.find((r: any) => r.id === a.request_id);
             const zone = zones.find((z: any) => z.id === a.zone_id);
             const team = teamAvailabilities.find((t: any) => 
@@ -603,8 +696,8 @@ export async function POST(request: NextRequest) {
         };
       });
 
-    const total_area = bestSolution.fitness;
-    const total_requests = bestSolution.assignments.length;
+    const total_area = plan.reduce((sum, day) => sum + day.assignments.reduce((s, a) => s + a.area_rai, 0), 0);
+    const total_requests = new Set(plan.flatMap(day => day.assignments.map(a => a.request_id))).size;
 
     const summary = plan.map((day) => ({
       date: day.date,
